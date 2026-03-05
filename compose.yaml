@@ -21,10 +21,15 @@ services:
         condition: service_healthy
     environment:
       - DAEMON_URL=http://username:password@namecoind:8336/
+      - SERVICES=tcp://:50001,ssl://:50002
+      - SSL_CERTFILE=/certs/cert.pem
+      - SSL_KEYFILE=/certs/key.pem
     volumes:
       - electrumx-data:/var/lib/electrumx
+      - /etc/electrumx-certs:/certs:ro
     ports:
       - "50001:50001"   # ElectrumX TCP
+      - "50002:50002"   # ElectrumX SSL
 
   mempool-web:
     image: mempool/frontend:latest
