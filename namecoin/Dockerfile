@@ -35,6 +35,8 @@ RUN groupadd -r namecoin && useradd -r -g namecoin -m namecoin
 COPY --from=builder /usr/src/namecoin-core/build/bin/namecoind /usr/local/bin/
 COPY --from=builder /usr/src/namecoin-core/build/bin/namecoin-cli /usr/local/bin/
 COPY namecoin.conf /etc/namecoin/namecoin.conf
+COPY --from=builder /usr/src/namecoin-core/contrib/seeds/nodes_main.txt /tmp/nodes_main.txt
+RUN grep ":8334" /tmp/nodes_main.txt | while read ip; do echo "addnode=$ip" >> /etc/namecoin/namecoin.conf; done
 
 RUN mkdir -p /home/namecoin/.namecoin \
     && chown -R namecoin:namecoin /home/namecoin
