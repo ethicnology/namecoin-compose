@@ -23,15 +23,60 @@ All services communicate over an internal compose network. Only P2P (8334), Elec
 | `mempool-web` | Mempool block explorer frontend | 8080 (HTTP) |
 | `mempool-api` | Mempool backend connected to namecoind RPC | internal |
 | `mempool-db` | MariaDB 10.5 for mempool data | internal |
-| `mempool-db-patch` | One-shot: patches DB schema for Namecoin AuxPoW headers | exits after run |
+
+## Prerequisites (Debian/Ubuntu)
+
+### Install podman and podman-compose
+
+```bash
+sudo apt-get update
+sudo apt-get install -y podman podman-compose
+```
+
+### Configure podman rootless
+
+Podman rootless on Debian requires cgroup and registry configuration:
+
+```bash
+# Enable user lingering (allows containers to run without active login)
+loginctl enable-linger $(whoami)
+
+# Configure cgroupfs (needed if systemd user session is unavailable, e.g. SSH)
+mkdir -p ~/.config/containers/
+cat > ~/.config/containers/containers.conf <<EOF
+[engine]
+cgroup_manager = "cgroupfs"
+events_logger = "file"
+EOF
+
+# Add Docker Hub as default image registry
+cat > ~/.config/containers/registries.conf <<EOF
+unqualified-search-registries = ["docker.io"]
+EOF
+```
+
+### SSL certificates directory
+
+Create the cert mount point (required even without SSL):
+
+```bash
+sudo mkdir -p /etc/electrumx-certs
+```
+
+See [SSL with Caddy](#ssl-with-caddy) for setting up TLS certificates.
 
 ## Quick Start
 
 ```bash
 git clone <repo-url>
-cd electrumx-docker
+cd <repo-name>
 podman compose build
 podman compose up -d
+
+# Wait ~30s for mempool-api to create tables, then patch for Namecoin AuxPoW headers:
+sleep 30 && podman exec $(podman ps -qf "name=mempool-db") \
+  mysql -u mempool -pmempool mempool \
+  -e "ALTER TABLE blocks MODIFY COLUMN header TEXT NOT NULL;"
 ```
 
 The namecoind build compiles from source (~30 min). After that, the blockchain sync takes several hours from scratch.
@@ -49,35 +94,40 @@ namecoind:
     - /path/to/.namecoin:/home/namecoin/.namecoin
 ```
 
-3. Fix permissions for podman rootless:
 
-```bash
-podman unshare chown -R 999:999 /path/to/.namecoin
-```
-
-4. Start the stack:
-
-```bash
-podman compose up -d
-```
 
 ## Namecoin AuxPoW Compatibility
 
 Mempool was designed for Bitcoin's fixed 80-byte block headers. Namecoin uses AuxPoW (merge-mining with Bitcoin), which produces variable-length headers much larger than 80 bytes.
 
-The `mempool-db-patch` service automatically patches the MariaDB schema on startup, changing the `blocks.header` column from `varchar(160)` to `TEXT`. This runs once and exits.
+After first deploy, you must patch the `blocks.header` column from `varchar(160)` to `TEXT`:
+
+```bash
+podman exec $(podman ps -qf "name=mempool-db") \
+  mysql -u mempool -pmempool mempool \
+  -e "ALTER TABLE blocks MODIFY COLUMN header TEXT NOT NULL;"
+```
+
+This only needs to run once — the `mariadb-data` volume persists the change across restarts.
 
 ## SSL with Caddy
 
-ElectrumX serves SSL on port 50002 using certificates from `/etc/electrumx-certs/`. If you have Caddy managing TLS for your domain, symlink its auto-renewed certs:
+ElectrumX serves SSL on port 50002 using certificates from `/etc/electrumx-certs/`. If you have Caddy managing TLS for your domain:
 
 ```bash
-# Find where Caddy stores certs (typically under the caddy user's home)
-CADDY_CERTS="/var/lib/caddy/.local/share/caddy/certificates/acme-v02.api.letsencrypt.org-directory/electrumx.yourdomain.com"
+CADDY_CERTS="/var/lib/caddy/.local/share/caddy/certificates/acme-v02.api.letsencrypt.org-directory/your.domain.com"
 
-# Create symlink
-sudo ln -s "$CADDY_CERTS/electrumx.yourdomain.com.crt" /etc/electrumx-certs/cert.pem
-sudo ln -s "$CADDY_CERTS/electrumx.yourdomain.com.key" /etc/electrumx-certs/key.pem
+# Make Caddy cert path traversable for podman rootless
+sudo chmod o+x /var/lib/caddy /var/lib/caddy/.local /var/lib/caddy/.local/share \
+  /var/lib/caddy/.local/share/caddy /var/lib/caddy/.local/share/caddy/certificates \
+  /var/lib/caddy/.local/share/caddy/certificates/acme-v02.api.letsencrypt.org-directory
+sudo chmod o+rx "$CADDY_CERTS"
+sudo chmod o+r "$CADDY_CERTS"/*
+
+# Symlink certs (auto-updates on Caddy renewal)
+sudo mkdir -p /etc/electrumx-certs
+sudo ln -sf "$CADDY_CERTS/your.domain.com.crt" /etc/electrumx-certs/cert.pem
+sudo ln -sf "$CADDY_CERTS/your.domain.com.key" /etc/electrumx-certs/key.pem
 ```
 
 For the mempool frontend, add a reverse proxy in your Caddyfile:

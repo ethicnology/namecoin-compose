@@ -102,18 +102,6 @@ services:
       timeout: 5s
       retries: 10
 
-  # Patches mempool DB schema for Namecoin AuxPoW headers (larger than Bitcoin's 80 bytes)
-  mempool-db-patch:
-    image: mariadb:10.5.21
-    restart: "no"
-    depends_on:
-      mempool-api:
-        condition: service_started
-    command: >
-      bash -c "sleep 30 &&
-      until mysql -h mempool-db -u mempool -pmempool mempool -e 'DESC blocks' 2>/dev/null | grep -q header; do sleep 5; done &&
-      mysql -h mempool-db -u mempool -pmempool mempool -e 'ALTER TABLE blocks MODIFY COLUMN header TEXT NOT NULL;' &&
-      echo 'Patched blocks.header to TEXT for Namecoin AuxPoW'"
 
 volumes:
   namecoin-data:
