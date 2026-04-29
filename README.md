@@ -110,6 +110,26 @@ podman exec $(podman ps -qf "name=mempool-db") \
 
 This only needs to run once — the `mariadb-data` volume persists the change across restarts.
 
+## Known display disparities (Mempool ↔ Namecoin)
+
+This stack runs the **upstream `mempool/frontend` and `mempool/backend` images unmodified**. Mempool was built for Bitcoin and has no Namecoin awareness. Several pieces of UI are therefore inaccurate when pointed at namecoind. They are documented here rather than silently misleading users.
+
+### Fixed in this compose
+
+| Symptom | Why it happens | Fix in `compose.yaml` |
+|---|---|---|
+| Mempool shows a USD price for every fee/amount, e.g. `100 sat/vB ≈ $10.82` | Backend fetches BTC/USD from Kraken/Coinbase and applies it to all sats. BTC is ~$108k, NMC is ~$1.50, so fiat values are off by ~70 000×. | `FIAT_PRICE_ENABLED=false` on `mempool-api`, `HISTORICAL_PRICE=false` on `mempool-web`. |
+
+### Not fixed (require a forked Mempool image)
+
+| Symptom | Why it happens | Where the real fix lives |
+|---|---|---|
+| Fee rate labelled `sat/vB` instead of `swartz/vB` | The string `sat/vB` and the symbol `₿` are hard-coded in 50+ frontend files. There is no env var for the smallest-unit name. | Fork `mempool/mempool` frontend; replace unit/label strings throughout. |
+| Transaction amounts shown as `BTC` / `₿` rather than `NMC` / `ℕ` | Same as above — currency labels are hard-coded. The 8-decimal scaling itself is correct (NMC also has 8 decimals). | Fork frontend; replace currency strings. |
+| **Every block shows miner = `Unknown`** | Namecoin is merge-mined with Bitcoin. The real miner identity lives in the **parent Bitcoin coinbase** carried inside the AuxPoW header — not in the Namecoin coinbase that mempool inspects. Mempool's `pools-v2.json` regexes never match the Namecoin coinbase, so every block falls through to the `unknown` pool. | Backend change: extract the parent-chain coinbase from the AuxPoW block header before running pool-tag detection. Filed upstream — see linked tracking issue. |
+
+A NMC-aware Mempool fork (covering the unit labels, currency labels and AuxPoW pool detection) is a multi-day undertaking and tracked separately. Until then the items above will continue to show Bitcoin-style data.
+
 ## SSL with Caddy
 
 ElectrumX serves SSL on port 50002 using certificates from `/etc/electrumx-certs/`. If you have Caddy managing TLS for your domain:
