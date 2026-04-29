@@ -39,6 +39,11 @@ services:
     environment:
       FRONTEND_HTTP_PORT: "8080"
       BACKEND_MAINNET_HTTP_HOST: "mempool-api"
+      # Disable the historical price overlay on the frontend. The feed is
+      # BTC/USD; applying it to a Namecoin backend produces wildly wrong
+      # numbers (e.g. 100 swartz/vB rendered as ~$10 instead of a fraction
+      # of a cent). See README "Known display disparities".
+      HISTORICAL_PRICE: "false"
     ports:
       - "8080:8080"
     depends_on:
@@ -70,6 +75,11 @@ services:
       DATABASE_USERNAME: "mempool"
       DATABASE_PASSWORD: "mempool"
       STATISTICS_ENABLED: "true"
+      # Disable the live BTC/USD price fetcher on the backend. Mempool's
+      # price feed only knows Bitcoin; applying BTC ~ $108k to Namecoin
+      # sats (NMC ~ $1.5) produces meaningless fiat values throughout the
+      # UI. See README "Known display disparities".
+      FIAT_PRICE_ENABLED: "false"
     volumes:
       - mempool-cache:/backend/cache
     depends_on:
